@@ -7,7 +7,8 @@ import {
   HealthCategory, 
   AgeGroup,
   ImportRecord,
-  AuditLog
+  AuditLog,
+  StandardAgeBracket
 } from '../types/health';
 import { 
   INITIAL_INDICATORS, 
@@ -15,6 +16,12 @@ import {
   INITIAL_USERS, 
   generateSeedDataRecords 
 } from '../data/mockData';
+import { calculateIndicatorPercentage, validateIndicatorRecord } from '../utils/dataValidation';
+
+interface MutationResult {
+  success: boolean;
+  message?: string;
+}
 
 const INITIAL_AUDIT_LOGS: AuditLog[] = [
   {
@@ -93,6 +100,8 @@ interface HealthDataContextType {
   setSelectedCategory: (cat: HealthCategory | 'ALL') => void;
   selectedAgeGroup: AgeGroup | 'ALL';
   setSelectedAgeGroup: (ag: AgeGroup | 'ALL') => void;
+  selectedAgeBracket: StandardAgeBracket | 'ALL';
+  setSelectedAgeBracket: (bracket: StandardAgeBracket | 'ALL') => void;
   selectedIndicatorId: string | 'ALL';
   setSelectedIndicatorId: (indId: string | 'ALL') => void;
   searchQuery: string;
@@ -103,13 +112,12 @@ interface HealthDataContextType {
 
   // Audit Trail (Business Rule 7)
   auditLogs: AuditLog[];
-  clearAuditLogs: () => void;
 
   // Mutations
-  addRecord: (record: Omit<IndicatorDataRecord, 'id' | 'updatedAt' | 'achievementRate' | 'updatedBy'>) => void;
-  updateRecord: (id: string, updates: Partial<IndicatorDataRecord>) => void;
+  addRecord: (record: Omit<IndicatorDataRecord, 'id' | 'updatedAt' | 'achievementRate' | 'updatedBy'>) => MutationResult;
+  updateRecord: (id: string, updates: Partial<IndicatorDataRecord>) => MutationResult;
   deleteRecord: (id: string) => void;
-  importRecordsBatch: (records: IndicatorDataRecord[], log: Omit<ImportRecord, 'id'>) => void;
+  importRecordsBatch: (records: IndicatorDataRecord[], log: Omit<ImportRecord, 'id'>) => MutationResult;
   resetToDefaultData: () => void;
   updateIndicator: (id: string, updates: Partial<HealthIndicator>) => void;
 }
@@ -213,6 +221,7 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [selectedKecamatan, setSelectedKecamatan] = useState<string | 'ALL'>('ALL');
   const [selectedCategory, setSelectedCategory] = useState<HealthCategory | 'ALL'>('ALL');
   const [selectedAgeGroup, setSelectedAgeGroup] = useState<AgeGroup | 'ALL'>('ALL');
+  const [selectedAgeBracket, setSelectedAgeBracket] = useState<StandardAgeBracket | 'ALL'>('ALL');
   const [selectedIndicatorId, setSelectedIndicatorId] = useState<string | 'ALL'>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -226,11 +235,6 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     return INITIAL_AUDIT_LOGS;
   });
-
-  const clearAuditLogs = () => {
-    setAuditLogs([]);
-    localStorage.removeItem(STORAGE_KEYS.AUDIT_LOGS);
-  };
 
   // Derive unique Kecamatan from Puskesmas list
   const kecamatanList = useMemo(() => {
@@ -339,6 +343,10 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     localStorage.setItem(STORAGE_KEYS.IMPORT_LOGS, JSON.stringify(importLogs));
   }, [importLogs]);
 
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(auditLogs));
+  }, [auditLogs]);
+
   // Computed filtered records
   const filteredRecords = React.useMemo(() => {
     return records.filter((r) => {
@@ -368,6 +376,8 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Age group filter (F05 requirement)
       if (selectedAgeGroup !== 'ALL' && r.ageGroup !== selectedAgeGroup) return false;
 
+      if (selectedAgeBracket !== 'ALL' && r.ageBracket !== selectedAgeBracket) return false;
+
       // Indicator filter (Flow 2 requirement)
       if (selectedIndicatorId !== 'ALL' && r.indicatorId !== selectedIndicatorId) return false;
 
@@ -382,14 +392,26 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       return true;
     });
-  }, [records, currentUser, selectedYear, selectedMonth, selectedPuskesmasId, selectedKecamatan, puskesmasList, selectedCategory, selectedAgeGroup, selectedIndicatorId, searchQuery]);
+  }, [records, currentUser, selectedYear, selectedMonth, selectedPuskesmasId, selectedKecamatan, puskesmasList, selectedCategory, selectedAgeGroup, selectedAgeBracket, selectedIndicatorId, searchQuery]);
 
   // Add record (with Business Rule 7 Audit Trail)
   const addRecord = (newRec: Omit<IndicatorDataRecord, 'id' | 'updatedAt' | 'achievementRate' | 'updatedBy'>) => {
-    const rate = Number(((newRec.numerator / newRec.denominator) * 100).toFixed(1));
+    const validation = validateIndicatorRecord(newRec, indicators, puskesmasList, records);
+    if (validation.errors.length > 0 || !validation.puskesmas || !validation.indicator) {
+      return { success: false, message: validation.errors.join(' ') };
+    }
+    const rate = calculateIndicatorPercentage(newRec.numerator, newRec.denominator);
+    if (rate === null) return { success: false, message: 'Tidak dapat menghitung persentase tanpa denominator yang valid.' };
+    const timestamp = new Date().toISOString();
     const fullRecord: IndicatorDataRecord = {
       ...newRec,
       id: `REC-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      puskesmasName: validation.puskesmas.name,
+      indicatorCode: validation.indicator.code,
+      indicatorName: validation.indicator.name,
+      category: validation.indicator.category,
+      ageGroup: validation.indicator.ageGroup,
+      targetValue: validation.indicator.spmTarget,
       puskesmas_id: newRec.puskesmasId,
       indicator_id: newRec.indicatorId,
       period_id: `${newRec.year}-${newRec.month}`,
@@ -397,7 +419,7 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       target: newRec.targetValue,
       percentage: rate,
       achievementRate: rate,
-      updatedAt: new Date().toISOString(),
+      updatedAt: timestamp,
       updatedBy: `${currentUser.name} (${currentUser.title})`,
     };
 
@@ -406,7 +428,7 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // Audit Log entry
     const createAudit: AuditLog = {
       id: `AUD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      timestamp: new Date().toISOString(),
+      timestamp,
       user: currentUser.name,
       userRole: currentUser.role,
       action: 'CREATE',
@@ -416,57 +438,65 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       period: `${fullRecord.year} - Bln ${String(fullRecord.month).padStart(2, '0')}`,
       previousValue: null,
       newValue: `${rate}% (${newRec.numerator} / ${newRec.denominator})`,
+      previousData: null,
+      newData: fullRecord,
       changeSummary: `Entri capaian baru untuk ${fullRecord.puskesmasName} - ${fullRecord.indicatorName}`,
     };
     setAuditLogs(prev => [createAudit, ...prev]);
+    return { success: true };
   };
 
   // Update record (with Business Rule 7 Audit Trail)
   const updateRecord = (id: string, updates: Partial<IndicatorDataRecord>) => {
     const existing = records.find(r => r.id === id);
-
-    setRecords(prev => prev.map(rec => {
-      if (rec.id !== id) return rec;
-      const num = updates.numerator !== undefined ? updates.numerator : rec.numerator;
-      const den = updates.denominator !== undefined ? updates.denominator : rec.denominator;
-      const rate = den > 0 ? Number(((num / den) * 100).toFixed(1)) : 0;
-
-      return {
-        ...rec,
-        ...updates,
-        value: rate,
-        percentage: rate,
-        numerator: num,
-        denominator: den,
-        achievementRate: rate,
-        updatedAt: new Date().toISOString(),
-        updatedBy: `${currentUser.name} (${currentUser.title})`,
-      };
-    }));
-
-    if (existing) {
-      const num = updates.numerator !== undefined ? updates.numerator : existing.numerator;
-      const den = updates.denominator !== undefined ? updates.denominator : existing.denominator;
-      const rate = den > 0 ? Number(((num / den) * 100).toFixed(1)) : 0;
-      const prevVal = `${existing.achievementRate}% (${existing.numerator} / ${existing.denominator})`;
-      const newVal = `${rate}% (${num} / ${den})`;
-
-      const updateAudit: AuditLog = {
-        id: `AUD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        timestamp: new Date().toISOString(),
-        user: currentUser.name,
-        userRole: currentUser.role,
-        action: 'UPDATE',
-        recordId: id,
-        puskesmasName: existing.puskesmasName,
-        indicatorName: existing.indicatorName,
-        period: `${existing.year} - Bln ${String(existing.month).padStart(2, '0')}`,
-        previousValue: prevVal,
-        newValue: newVal,
-        changeSummary: `Pembaruan data capaian (${prevVal} → ${newVal})`,
-      };
-      setAuditLogs(prev => [updateAudit, ...prev]);
+    if (!existing) return { success: false, message: 'Data yang akan diperbarui tidak ditemukan.' };
+    const candidate = { ...existing, ...updates };
+    const validation = validateIndicatorRecord(candidate, indicators, puskesmasList, records, id);
+    if (validation.errors.length > 0 || !validation.puskesmas || !validation.indicator) {
+      return { success: false, message: validation.errors.join(' ') };
     }
+    const rate = calculateIndicatorPercentage(candidate.numerator, candidate.denominator);
+    if (rate === null) return { success: false, message: 'Tidak dapat menghitung persentase tanpa denominator yang valid.' };
+    const timestamp = new Date().toISOString();
+    const updatedRecord: IndicatorDataRecord = {
+      ...candidate,
+      id: existing.id,
+      puskesmasName: validation.puskesmas.name,
+      indicatorCode: validation.indicator.code,
+      indicatorName: validation.indicator.name,
+      category: validation.indicator.category,
+      ageGroup: validation.indicator.ageGroup,
+      targetValue: validation.indicator.spmTarget,
+      puskesmas_id: validation.puskesmas.id,
+      indicator_id: validation.indicator.id,
+      period_id: `${candidate.year}-${candidate.month}`,
+      value: rate,
+      target: validation.indicator.spmTarget,
+      percentage: rate,
+      achievementRate: rate,
+      updatedAt: timestamp,
+      updatedBy: `${currentUser.name} (${currentUser.title})`,
+    };
+    setRecords(prev => prev.map(rec => rec.id === id ? updatedRecord : rec));
+
+    const updateAudit: AuditLog = {
+      id: `AUD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp,
+      user: currentUser.name,
+      userRole: currentUser.role,
+      action: 'UPDATE',
+      recordId: id,
+      puskesmasName: existing.puskesmasName,
+      indicatorName: existing.indicatorName,
+      period: `${existing.year} - Bln ${String(existing.month).padStart(2, '0')}`,
+      previousValue: `${existing.achievementRate}% (${existing.numerator} / ${existing.denominator})`,
+      newValue: `${rate}% (${candidate.numerator} / ${candidate.denominator})`,
+      previousData: existing,
+      newData: updatedRecord,
+      changeSummary: `Pembaruan data capaian (${existing.achievementRate}% → ${rate}%)`,
+    };
+    setAuditLogs(prev => [updateAudit, ...prev]);
+    return { success: true };
   };
 
   // Delete record (with Business Rule 7 Audit Trail)
@@ -487,6 +517,8 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         period: `${target.year} - Bln ${String(target.month).padStart(2, '0')}`,
         previousValue: `${target.achievementRate}% (${target.numerator} / ${target.denominator})`,
         newValue: null,
+        previousData: target,
+        newData: null,
         changeSummary: `Penghapusan data capaian untuk ${target.puskesmasName} - ${target.indicatorName}`,
       };
       setAuditLogs(prev => [deleteAudit, ...prev]);
@@ -495,18 +527,49 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // Batch import records (with Business Rule 7 Audit Trail)
   const importRecordsBatch = (newRecords: IndicatorDataRecord[], logData: Omit<ImportRecord, 'id'>) => {
-    // Ensure data dictionary compatibility for imported records
-    const normalizedRecords = newRecords.map(r => ({
-      ...r,
-      puskesmas_id: r.puskesmas_id || r.puskesmasId,
-      indicator_id: r.indicator_id || r.indicatorId,
-      period_id: r.period_id || `${r.year}-${r.month}`,
-      value: r.value !== undefined ? r.value : r.achievementRate,
-      target: r.target !== undefined ? r.target : r.targetValue,
-      percentage: r.percentage !== undefined ? r.percentage : r.achievementRate,
-    }));
+    if (newRecords.length === 0) return { success: false, message: 'Tidak ada data valid untuk disimpan.' };
+    if (logData.validRows !== newRecords.length) {
+      return { success: false, message: 'Jumlah baris valid pada log import tidak sesuai dengan data yang akan disimpan.' };
+    }
 
-    setRecords(prev => [...normalizedRecords, ...prev]);
+    // Ensure data dictionary compatibility for imported records
+    const acceptedRecords: IndicatorDataRecord[] = [];
+    for (const record of newRecords) {
+      const validation = validateIndicatorRecord(
+        record,
+        indicators,
+        puskesmasList,
+        [...records, ...acceptedRecords]
+      );
+      if (validation.errors.length > 0 || !validation.puskesmas || !validation.indicator) {
+        return {
+          success: false,
+          message: `Import dibatalkan: ${validation.errors.join(' ') || 'Referensi data tidak valid.'}`,
+        };
+      }
+      const rate = calculateIndicatorPercentage(record.numerator, record.denominator);
+      if (rate === null) {
+        return { success: false, message: 'Import dibatalkan: denominator tidak valid untuk perhitungan persentase.' };
+      }
+      acceptedRecords.push({
+        ...record,
+        puskesmasName: validation.puskesmas.name,
+        indicatorCode: validation.indicator.code,
+        indicatorName: validation.indicator.name,
+        category: validation.indicator.category,
+        ageGroup: validation.indicator.ageGroup,
+        targetValue: validation.indicator.spmTarget,
+        puskesmas_id: validation.puskesmas.id,
+        indicator_id: validation.indicator.id,
+        period_id: `${record.year}-${record.month}`,
+        value: rate,
+        target: validation.indicator.spmTarget,
+        percentage: rate,
+        achievementRate: rate,
+      });
+    }
+
+    setRecords(prev => [...acceptedRecords, ...prev]);
     const newLog: ImportRecord = {
       ...logData,
       id: `LOG-${Date.now()}`,
@@ -527,13 +590,16 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       userRole: currentUser.role,
       action: 'IMPORT',
       puskesmasName: 'Wilayah Terpadu',
-      indicatorName: `Batch ${newRecords.length} Data Capaian`,
+      indicatorName: `Batch ${acceptedRecords.length} Data Capaian`,
       period: 'Periode Beragam',
       previousValue: null,
-      newValue: `${newRecords.length} data tersimpan`,
-      changeSummary: `Import data via file ${logData.fileName} (${newRecords.length} baris valid dari total ${logData.totalRows})`,
+      newValue: `${acceptedRecords.length} data tersimpan`,
+      previousData: null,
+      newData: acceptedRecords,
+      changeSummary: `Import data via file ${logData.fileName} (${acceptedRecords.length} baris valid dari total ${logData.totalRows})`,
     };
     setAuditLogs(prev => [importAudit, ...prev]);
+    return { success: true };
   };
 
   // Reset to default seed data
@@ -583,13 +649,14 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setSelectedCategory,
         selectedAgeGroup,
         setSelectedAgeGroup,
+        selectedAgeBracket,
+        setSelectedAgeBracket,
         selectedIndicatorId,
         setSelectedIndicatorId,
         searchQuery,
         setSearchQuery,
         filteredRecords,
         auditLogs,
-        clearAuditLogs,
         addRecord,
         updateRecord,
         deleteRecord,

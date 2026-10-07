@@ -48,8 +48,10 @@ export const PuskesmasComparisonView: React.FC<PuskesmasComparisonViewProps> = (
 
       const totalNum = recs.reduce((s, r) => s + r.numerator, 0);
       const totalDen = recs.reduce((s, r) => s + r.denominator, 0);
-      const rate = totalDen > 0 ? Number(((totalNum / totalDen) * 100).toFixed(1)) : 0;
-      const status = getIndicatorSPMStatus(activeIndicator, rate);
+      const rate = recs.length > 0 && totalDen > 0
+        ? Number(((totalNum / totalDen) * 100).toFixed(1))
+        : null;
+      const status = rate === null ? null : getIndicatorSPMStatus(activeIndicator, rate);
 
       return {
         puskesmas: pkm,
@@ -62,6 +64,8 @@ export const PuskesmasComparisonView: React.FC<PuskesmasComparisonViewProps> = (
     });
 
     return [...data].sort((a, b) => {
+      if (a.rate === null) return b.rate === null ? 0 : 1;
+      if (b.rate === null) return -1;
       if (sortOrder === 'DESC') return b.rate - a.rate;
       return a.rate - b.rate;
     });
@@ -73,13 +77,12 @@ export const PuskesmasComparisonView: React.FC<PuskesmasComparisonViewProps> = (
       const pkmRecs = filteredRecords.filter(r => r.puskesmasId === pkm.id);
       const avgRate = pkmRecs.length > 0
         ? Number((pkmRecs.reduce((s, r) => s + r.achievementRate, 0) / pkmRecs.length).toFixed(1))
-        : 0;
+        : null;
 
       const reachedCount = indicators.filter(ind => {
         const indRecs = pkmRecs.filter(r => r.indicatorId === ind.id);
-        const rate = indRecs.length > 0
-          ? Number((indRecs.reduce((s, r) => s + r.achievementRate, 0) / indRecs.length).toFixed(1))
-          : 0;
+        if (indRecs.length === 0) return false;
+        const rate = Number((indRecs.reduce((s, r) => s + r.achievementRate, 0) / indRecs.length).toFixed(1));
         return getIndicatorSPMStatus(ind, rate) === 'TERCAPAI';
       }).length;
 
@@ -89,7 +92,11 @@ export const PuskesmasComparisonView: React.FC<PuskesmasComparisonViewProps> = (
         reachedCount,
         totalIndicators: indicators.length,
       };
-    }).sort((a, b) => b.avgRate - a.avgRate);
+    }).sort((a, b) => {
+      if (a.avgRate === null) return b.avgRate === null ? 0 : 1;
+      if (b.avgRate === null) return -1;
+      return b.avgRate - a.avgRate;
+    }).filter(item => item.avgRate !== null);
   }, [puskesmasList, filteredRecords, indicators]);
 
   return (
@@ -162,7 +169,7 @@ export const PuskesmasComparisonView: React.FC<PuskesmasComparisonViewProps> = (
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <span className="font-mono font-bold text-emerald-700 text-sm">{item.avgRate}%</span>
+                  <span className="font-mono font-bold text-emerald-700 text-sm">{item.avgRate ?? '—'}{item.avgRate === null ? '' : '%'}</span>
                   <span className="text-[10px] text-slate-400 block">{item.reachedCount}/{item.totalIndicators} target</span>
                 </div>
               </div>
@@ -192,7 +199,7 @@ export const PuskesmasComparisonView: React.FC<PuskesmasComparisonViewProps> = (
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <span className="font-mono font-bold text-amber-700 text-sm">{item.avgRate}%</span>
+                  <span className="font-mono font-bold text-amber-700 text-sm">{item.avgRate ?? '—'}{item.avgRate === null ? '' : '%'}</span>
                   <span className="text-[10px] text-rose-500 block">
                     {item.totalIndicators - item.reachedCount} target tertinggal
                   </span>
@@ -256,7 +263,9 @@ export const PuskesmasComparisonView: React.FC<PuskesmasComparisonViewProps> = (
 
           {/* Interactive Bar Chart */}
           <div className="space-y-3 pt-2">
-            {comparisonData.map((item, idx) => {
+            {comparisonData.every(item => item.rate === null) ? (
+              <p className="py-8 text-center text-sm text-slate-500">Tidak ada data untuk filter yang dipilih.</p>
+            ) : comparisonData.map((item, idx) => {
               const isTargetAchieved = item.status === 'TERCAPAI';
               const isCritical = item.status === 'KRITIS';
 
@@ -277,14 +286,16 @@ export const PuskesmasComparisonView: React.FC<PuskesmasComparisonViewProps> = (
 
                     <div className="flex items-center gap-3 shrink-0">
                       <span className="text-[11px] font-mono text-slate-500 hidden sm:inline">
-                        {formatNumberID(item.num)} / {formatNumberID(item.den)}
+                        {item.recordsCount === 0
+                          ? '—'
+                          : `${formatNumberID(item.num)} / ${formatNumberID(item.den)}`}
                       </span>
                       <span className={`font-mono font-bold text-xs ${
-                        isTargetAchieved ? 'text-teal-700' : isCritical ? 'text-rose-600' : 'text-amber-600'
+                        item.rate === null ? 'text-slate-400' : isTargetAchieved ? 'text-teal-700' : isCritical ? 'text-rose-600' : 'text-amber-600'
                       }`}>
-                        {item.rate}%
+                        {item.rate === null ? '—' : `${item.rate}%`}
                       </span>
-                      <span className={`px-1.5 py-0.2 rounded text-[10px] font-semibold border ${
+                      {item.status !== null && <span className={`px-1.5 py-0.2 rounded text-[10px] font-semibold border ${
                         isTargetAchieved 
                           ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
                           : isCritical 
@@ -292,22 +303,24 @@ export const PuskesmasComparisonView: React.FC<PuskesmasComparisonViewProps> = (
                           : 'bg-amber-50 text-amber-700 border-amber-200'
                       }`}>
                         {item.status}
-                      </span>
+                      </span>}
                     </div>
                   </div>
 
                   {/* Horizontal Bar with Target Marker */}
                   <div className="relative w-full bg-slate-100 rounded-full h-3.5 overflow-hidden">
-                    <div
-                      className={`h-3.5 rounded-full transition-all duration-500 ${
-                        isTargetAchieved 
-                          ? 'bg-teal-600' 
-                          : isCritical 
-                          ? 'bg-rose-500' 
-                          : 'bg-amber-500'
-                      }`}
-                      style={{ width: `${Math.min(100, item.rate)}%` }}
-                    />
+                    {item.rate !== null && (
+                      <div
+                        className={`h-3.5 rounded-full transition-all duration-500 ${
+                          isTargetAchieved
+                            ? 'bg-teal-600'
+                            : isCritical
+                            ? 'bg-rose-500'
+                            : 'bg-amber-500'
+                        }`}
+                        style={{ width: `${Math.min(100, item.rate)}%` }}
+                      />
+                    )}
                     {/* Target Benchmark indicator line */}
                     <div
                       className="absolute top-0 bottom-0 w-0.5 bg-slate-800 z-10"
@@ -372,6 +385,7 @@ export const PuskesmasComparisonView: React.FC<PuskesmasComparisonViewProps> = (
                 {puskesmasList.map(pkm => {
                   const pkmRecs = filteredRecords.filter(r => r.puskesmasId === pkm.id);
                   let totalRate = 0;
+                  let rateCount = 0;
 
                   return (
                     <tr key={pkm.id} className="hover:bg-slate-50/80">
@@ -384,9 +398,12 @@ export const PuskesmasComparisonView: React.FC<PuskesmasComparisonViewProps> = (
                         const recs = pkmRecs.filter(r => r.indicatorId === ind.id);
                         const rate = recs.length > 0
                           ? Number((recs.reduce((s, r) => s + r.achievementRate, 0) / recs.length).toFixed(1))
-                          : 0;
-                        totalRate += rate;
-                        const status = getIndicatorSPMStatus(ind, rate);
+                          : null;
+                        if (rate !== null) {
+                          totalRate += rate;
+                          rateCount += 1;
+                        }
+                        const status = rate === null ? null : getIndicatorSPMStatus(ind, rate);
 
                         return (
                           <td key={ind.id} className="py-2 px-1 text-center font-mono text-[11px]">
@@ -395,16 +412,20 @@ export const PuskesmasComparisonView: React.FC<PuskesmasComparisonViewProps> = (
                                 ? 'bg-emerald-100 text-emerald-800'
                                 : status === 'WASPADA'
                                 ? 'bg-amber-100 text-amber-800'
-                                : 'bg-rose-100 text-rose-800'
+                                : status === 'KRITIS'
+                                ? 'bg-rose-100 text-rose-800'
+                                : 'bg-slate-100 text-slate-500'
                             }`}>
-                              {rate}%
+                              {rate === null ? '—' : `${rate}%`}
                             </span>
                           </td>
                         );
                       })}
 
                       <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 sticky right-0 bg-white border-l border-slate-200">
-                        {(totalRate / indicators.length).toFixed(1)}%
+                        {rateCount > 0
+                          ? `${(totalRate / rateCount).toFixed(1)}%`
+                          : '—'}
                       </td>
                     </tr>
                   );

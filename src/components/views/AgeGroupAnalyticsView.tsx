@@ -12,7 +12,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { useHealthData } from '../../context/HealthDataContext';
-import { AGE_GROUPS } from '../../data/mockData';
+import { AGE_GROUPS, STANDARD_AGE_BRACKETS } from '../../data/mockData';
 import { AgeGroup, HealthIndicator } from '../../types/health';
 import { getIndicatorSPMStatus, formatNumberID } from '../../utils/healthCalculations';
 
@@ -37,13 +37,15 @@ export const AgeGroupAnalyticsView: React.FC<{ setActiveView: (view: string) => 
       const totalDen = groupRecords.reduce((sum, r) => sum + r.denominator, 0);
       const avgRate = groupRecords.length > 0
         ? Number((groupRecords.reduce((sum, r) => sum + r.achievementRate, 0) / groupRecords.length).toFixed(1))
-        : 0;
+        : null;
 
       const criticalCount = groupIndicators.filter(ind => {
         const indRecs = groupRecords.filter(r => r.indicatorId === ind.id);
-        const rate = indRecs.length > 0 
+        if (indRecs.length === 0) return false;
+        const rate = indRecs.length > 0
           ? Number((indRecs.reduce((sum, r) => sum + r.achievementRate, 0) / indRecs.length).toFixed(1))
-          : 0;
+          : null;
+        if (rate === null) return false;
         return getIndicatorSPMStatus(ind, rate) === 'KRITIS';
       }).length;
 
@@ -58,6 +60,19 @@ export const AgeGroupAnalyticsView: React.FC<{ setActiveView: (view: string) => 
       };
     });
   }, [indicators, filteredRecords]);
+
+  const standardAgeMetrics = React.useMemo(() => STANDARD_AGE_BRACKETS.map(group => {
+    const groupRecords = filteredRecords.filter(record => record.ageBracket === group.bracket);
+    const numerator = groupRecords.reduce((sum, record) => sum + record.numerator, 0);
+    const denominator = groupRecords.reduce((sum, record) => sum + record.denominator, 0);
+    return {
+      ...group,
+      recordsCount: groupRecords.length,
+      rate: groupRecords.length > 0 && denominator > 0
+        ? Number(((numerator / denominator) * 100).toFixed(1))
+        : null,
+    };
+  }), [filteredRecords]);
 
   // Selected age group detail
   const currentGroupData = activeAgeGroup === 'ALL' 
@@ -109,12 +124,14 @@ export const AgeGroupAnalyticsView: React.FC<{ setActiveView: (view: string) => 
                 <div>
                   <span className="text-[11px] text-slate-400 block">Rata-rata Capaian:</span>
                   <span className={`text-xl font-mono font-bold ${
-                    group.averageAchievement >= 85 ? 'text-teal-700' : 'text-amber-700'
+                    group.averageAchievement !== null && group.averageAchievement >= 85 ? 'text-teal-700' : 'text-amber-700'
                   }`}>
-                    {group.averageAchievement}%
+                    {group.averageAchievement === null ? '—' : `${group.averageAchievement}%`}
                   </span>
                 </div>
-                {group.criticalCount > 0 ? (
+                {group.recordsCount === 0 ? (
+                  <span className="text-[10px] font-medium text-slate-500">Tidak ada data</span>
+                ) : group.criticalCount > 0 ? (
                   <span className="text-[10px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 flex items-center gap-1">
                     <AlertTriangle className="w-3 h-3" />
                     {group.criticalCount} Kritis
@@ -131,14 +148,14 @@ export const AgeGroupAnalyticsView: React.FC<{ setActiveView: (view: string) => 
               <div className="w-full bg-slate-100 rounded-full h-1.5 mt-3 overflow-hidden">
                 <div
                   className="bg-teal-600 h-1.5 rounded-full"
-                  style={{ width: `${Math.min(100, group.averageAchievement)}%` }}
+                  style={{ width: `${Math.min(100, group.averageAchievement ?? 0)}%` }}
                 />
               </div>
 
               <div className="mt-2 text-[11px] text-slate-500 flex justify-between">
                 <span>{group.indicators.length} Indikator SPM</span>
                 <span className="font-mono text-slate-700 font-medium">
-                  {formatNumberID(group.totalNumerator)} jiwa
+                {group.recordsCount > 0 ? `${formatNumberID(group.totalNumerator)} jiwa` : '—'}
                 </span>
               </div>
             </div>
@@ -170,19 +187,21 @@ export const AgeGroupAnalyticsView: React.FC<{ setActiveView: (view: string) => 
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-[11px] text-slate-500 font-mono">
-                    {formatNumberID(group.totalNumerator)} / {formatNumberID(group.totalDenominator)} sasaran
+                    {group.recordsCount > 0
+                      ? `${formatNumberID(group.totalNumerator)} / ${formatNumberID(group.totalDenominator)} sasaran`
+                      : 'Tidak ada data untuk filter yang dipilih.'}
                   </span>
                   <span className="font-mono font-bold text-slate-800">
-                    {group.averageAchievement}%
+                    {group.averageAchievement === null ? '—' : `${group.averageAchievement}%`}
                   </span>
                 </div>
               </div>
               <div className="relative w-full bg-slate-100 rounded-full h-3 overflow-hidden">
                 <div
                   className={`h-3 rounded-full transition-all duration-500 ${
-                    group.averageAchievement >= 85 ? 'bg-teal-600' : 'bg-amber-500'
+                    group.averageAchievement !== null && group.averageAchievement >= 85 ? 'bg-teal-600' : 'bg-amber-500'
                   }`}
-                  style={{ width: `${Math.min(100, group.averageAchievement)}%` }}
+                  style={{ width: `${Math.min(100, group.averageAchievement ?? 0)}%` }}
                 />
                 <div
                   className="absolute top-0 bottom-0 w-0.5 bg-slate-800 z-10"
@@ -313,20 +332,13 @@ export const AgeGroupAnalyticsView: React.FC<{ setActiveView: (view: string) => 
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 pt-1">
-          {[
-            { age: '10–14', group: '10–14 Tahun', desc: 'Remaja Awal / SMP' },
-            { age: '15–19', group: '15–19 Tahun', desc: 'Remaja Lanjut / SMA' },
-            { age: '20–24', group: '20–24 Tahun', desc: 'Dewasa Muda / Pranikah' },
-            { age: '25–29', group: '25–29 Tahun', desc: 'Reproduksi Matang' },
-            { age: '30–34', group: '30–34 Tahun', desc: 'Reproduksi & Produktif' },
-            { age: '35–39', group: '35–39 Tahun', desc: 'Waspada Risiko Maternal' },
-            { age: '40–44', group: '40–44 Tahun', desc: 'Skrining PTM / DM' },
-            { age: '45–49', group: '45–49 Tahun', desc: 'PTM Intensif / Kanker' },
-          ].map((item, idx) => (
-            <div key={idx} className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-center">
-              <div className="text-xs font-bold text-slate-900 font-mono">{item.age}</div>
-              <div className="text-[11px] font-semibold text-teal-700 mt-0.5">{item.group}</div>
-              <div className="text-[9px] text-slate-400 mt-1">{item.desc}</div>
+          {standardAgeMetrics.map((group) => (
+            <div key={group.bracket} className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-center">
+              <div className="text-xs font-bold text-slate-900 font-mono">{group.bracket}</div>
+              <div className="text-[11px] font-semibold text-teal-700 mt-0.5">{group.label}</div>
+              <div className="text-[9px] text-slate-500 mt-1">
+                {group.rate === null ? 'Tidak ada data untuk filter yang dipilih.' : `${group.rate}% · ${group.recordsCount} catatan`}
+              </div>
             </div>
           ))}
         </div>

@@ -98,6 +98,7 @@ export interface IndicatorDataRecord {
   indicatorName: string;
   category: HealthCategory;
   ageGroup: AgeGroup;
+  ageBracket?: StandardAgeBracket;
   year: number;
   month: number;
   targetValue: number;
@@ -161,5 +162,7 @@ export interface AuditLog {
   period: string; // e.g. "2025 - Bulan 06"
   previousValue?: string | number | null;
   newValue?: string | number | null;
+  previousData?: IndicatorDataRecord | null;
+  newData?: IndicatorDataRecord | IndicatorDataRecord[] | null;
   changeSummary: string;
 }

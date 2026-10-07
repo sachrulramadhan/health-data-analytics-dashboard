@@ -62,6 +62,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     setSelectedKecamatan,
     setSelectedCategory,
     setSelectedAgeGroup,
+    setSelectedAgeBracket,
     setSelectedIndicatorId: setGlobalIndicatorId,
   } = useHealthData();
 
@@ -191,6 +192,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     setSelectedKecamatan('ALL');
     setSelectedCategory('ALL');
     setSelectedAgeGroup('ALL');
+    setSelectedAgeBracket('ALL');
     if (setGlobalIndicatorId) setGlobalIndicatorId('ALL');
   };
 
@@ -715,7 +717,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     {categoryAggregates.map((cat) => {
                       const share = filteredRecords.length > 0 
                         ? Math.round((cat.count / filteredRecords.length) * 100) 
-                        : 0;
+                        : null;
                       return (
                         <div key={cat.id} className="flex items-center justify-between text-xs">
                           <div className="flex items-center gap-1.5 truncate">
@@ -727,7 +729,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                           </div>
                           <div className="flex items-center gap-2 font-mono text-slate-500">
                             <span>{cat.count} data</span>
-                            <span className="font-bold text-slate-800">{share}%</span>
+                            <span className="font-bold text-slate-800">{share === null ? '—' : `${share}%`}</span>
                           </div>
                         </div>
                       );

@@ -21,7 +21,7 @@ export function getIndicatorSPMStatus(indicator: HealthIndicator, rate: number):
  * Format number with Indonesian locale (comma decimal, dot thousand)
  */
 export function formatNumberID(value: number, decimals: number = 0): string {
-  if (isNaN(value)) return '0';
+  if (!Number.isFinite(value)) return '—';
   return value.toLocaleString('id-ID', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
@@ -207,13 +207,15 @@ export function checkDuplicateRecord(
   indicatorId: string,
   year: number,
   month: number,
-  excludeRecordId?: string
+  excludeRecordId?: string,
+  ageBracket?: IndicatorDataRecord['ageBracket']
 ): { isDuplicate: boolean; existingRecord?: IndicatorDataRecord } {
   const existing = records.find(r => 
     r.puskesmasId === puskesmasId &&
     r.indicatorId === indicatorId &&
     r.year === year &&
     r.month === month &&
+    r.ageBracket === ageBracket &&
     r.id !== excludeRecordId
   );
 

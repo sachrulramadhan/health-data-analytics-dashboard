@@ -19,6 +19,7 @@ import {
   formatNumberID, 
   getIndicatorSPMStatus 
 } from '../../utils/healthCalculations';
+import { MONTH_NAMES_ID } from '../../data/mockData';
 
 export const ReportsExportView: React.FC = () => {
   const { 
@@ -147,9 +148,8 @@ export const ReportsExportView: React.FC = () => {
               className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 font-medium text-slate-800"
             >
               <option value="ALL">Semua Tahun</option>
-              <option value="2026">Tahun 2026</option>
-              <option value="2025">Tahun 2025</option>
-              <option value="2024">Tahun 2024</option>
+              {Array.from({ length: 11 }, (_, index) => 2030 - index)
+                .map(year => <option key={year} value={year}>Tahun {year}</option>)}
             </select>
           </div>
 
@@ -161,12 +161,9 @@ export const ReportsExportView: React.FC = () => {
               className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 font-medium text-slate-800"
             >
               <option value="ALL">Semua Bulan (Tahunan)</option>
-              <option value="1">Bulan 1 (Januari)</option>
-              <option value="2">Bulan 2 (Februari)</option>
-              <option value="3">Bulan 3 (Maret)</option>
-              <option value="4">Bulan 4 (April)</option>
-              <option value="5">Bulan 5 (Mei)</option>
-              <option value="6">Bulan 6 (Juni)</option>
+              {MONTH_NAMES_ID.map((month, index) => (
+                <option key={month} value={index + 1}>Bulan {index + 1} ({month})</option>
+              ))}
             </select>
           </div>
 
@@ -278,7 +275,11 @@ export const ReportsExportView: React.FC = () => {
         </div>
 
         {/* Executive Summary Highlights */}
-        <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-2">
+        {reportRecords.length === 0 ? (
+          <div className="p-6 bg-amber-50 border border-amber-200 rounded-lg text-center text-sm font-medium text-slate-700">
+            Tidak ada data untuk filter yang dipilih.
+          </div>
+        ) : <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-2">
           <h4 className="font-bold text-slate-900 uppercase tracking-wide text-[11px]">
             I. Ringkasan Eksekutif Kinerja Wilayah
           </h4>
@@ -300,7 +301,7 @@ export const ReportsExportView: React.FC = () => {
               <strong className="text-rose-700">{criticalItems.length} Indikator</strong>
             </div>
           </div>
-        </div>
+        </div>}
 
         {/* SPM Indicator Recap Table */}
         <div className="space-y-2">

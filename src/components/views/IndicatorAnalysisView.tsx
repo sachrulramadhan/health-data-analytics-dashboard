@@ -62,8 +62,8 @@ export const IndicatorAnalysisView: React.FC<IndicatorAnalysisViewProps> = ({
         const pkmRecs = recs.filter(r => r.puskesmasId === pkm.id);
         const pkmAvg = pkmRecs.length > 0
           ? Number((pkmRecs.reduce((sum, r) => sum + r.achievementRate, 0) / pkmRecs.length).toFixed(1))
-          : 0;
-        const pkmStatus = getIndicatorSPMStatus(ind, pkmAvg);
+          : null;
+        const pkmStatus = pkmAvg === null ? null : getIndicatorSPMStatus(ind, pkmAvg);
         const num = pkmRecs.reduce((sum, r) => sum + r.numerator, 0);
         const den = pkmRecs.reduce((sum, r) => sum + r.denominator, 0);
 
@@ -78,16 +78,20 @@ export const IndicatorAnalysisView: React.FC<IndicatorAnalysisViewProps> = ({
       });
 
       // Best and worst Puskesmas
-      const sortedByRate = [...pkmBreakdown].sort((a, b) => {
+      const sortedByRate = pkmBreakdown
+        .filter((pkm): pkm is (typeof pkmBreakdown)[number] & { rate: number } => pkm.rate !== null)
+        .sort((a, b) => {
         if (ind.direction === 'LOWER_IS_BETTER') {
           return a.rate - b.rate; // Lower is best
         }
         return b.rate - a.rate; // Higher is best
       });
 
-      const bestPkm = sortedByRate[0];
-      const worstPkm = sortedByRate[sortedByRate.length - 1];
-      const disparityGap = Math.abs(Number((bestPkm.rate - worstPkm.rate).toFixed(1)));
+      const bestPkm = sortedByRate[0] || null;
+      const worstPkm = sortedByRate[sortedByRate.length - 1] || null;
+      const disparityGap = bestPkm && worstPkm
+        ? Math.abs(Number((bestPkm.rate - worstPkm.rate).toFixed(1)))
+        : null;
 
       return {
         indicator: ind,
@@ -321,17 +325,23 @@ export const IndicatorAnalysisView: React.FC<IndicatorAnalysisViewProps> = ({
                 {/* Disparity strip */}
                 <div className="px-4 py-2 bg-slate-50/70 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-600 gap-2">
                   <div className="flex items-center gap-4 flex-wrap">
-                    <span>
-                      <strong className="text-slate-700">Capaian Tertinggi:</strong> {item.bestPkm.puskesmas.name} ({item.bestPkm.rate}%)
-                    </span>
-                    <span className="text-slate-300">|</span>
-                    <span>
-                      <strong className="text-slate-700">Capaian Terendah:</strong> {item.worstPkm.puskesmas.name} ({item.worstPkm.rate}%)
-                    </span>
-                    <span className="text-slate-300">|</span>
-                    <span className="text-amber-800 font-medium">
-                      Disparitas: {item.disparityGap}% selisih
-                    </span>
+                    {item.bestPkm && item.worstPkm ? (
+                      <>
+                        <span>
+                          <strong className="text-slate-700">Capaian Tertinggi:</strong> {item.bestPkm.puskesmas.name} ({item.bestPkm.rate}%)
+                        </span>
+                        <span className="text-slate-300">|</span>
+                        <span>
+                          <strong className="text-slate-700">Capaian Terendah:</strong> {item.worstPkm.puskesmas.name} ({item.worstPkm.rate}%)
+                        </span>
+                        <span className="text-slate-300">|</span>
+                        <span className="text-amber-800 font-medium">
+                          Disparitas: {item.disparityGap}% selisih
+                        </span>
+                      </>
+                    ) : (
+                      <span>Tidak ada data untuk filter yang dipilih.</span>
+                    )}
                   </div>
 
                   <button
@@ -390,13 +400,13 @@ export const IndicatorAnalysisView: React.FC<IndicatorAnalysisViewProps> = ({
                                 <td className="py-2 px-3 font-medium text-slate-800">{p.puskesmas.name}</td>
                                 <td className="py-2 px-3 text-slate-500">{p.puskesmas.district}</td>
                                 <td className="py-2 px-3 text-right font-mono text-slate-700">
-                                  {formatNumberID(p.num)}
+                                  {p.recordCount === 0 ? '—' : formatNumberID(p.num)}
                                 </td>
                                 <td className="py-2 px-3 text-right font-mono text-slate-700">
-                                  {formatNumberID(p.den)}
+                                  {p.recordCount === 0 ? '—' : formatNumberID(p.den)}
                                 </td>
                                 <td className="py-2 px-3 text-right font-mono font-bold text-slate-800">
-                                  {p.rate}%
+                                  {p.rate === null ? '—' : `${p.rate}%`}
                                 </td>
                                 <td className="py-2 px-3 text-center">
                                   <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${
@@ -404,9 +414,11 @@ export const IndicatorAnalysisView: React.FC<IndicatorAnalysisViewProps> = ({
                                       ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                       : p.status === 'WASPADA'
                                       ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                      : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                      : p.status === 'KRITIS'
+                                      ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                      : 'bg-slate-100 text-slate-500'
                                   }`}>
-                                    {p.status}
+                                    {p.status || 'Belum Ada Data'}
                                   </span>
                                 </td>
                               </tr>

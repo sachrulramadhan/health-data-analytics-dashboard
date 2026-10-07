@@ -1,8 +1,8 @@
 import React from 'react';
 import { Filter, Search, RotateCcw, Calendar, Building, Layers, Users, Activity } from 'lucide-react';
 import { useHealthData } from '../../context/HealthDataContext';
-import { HEALTH_CATEGORIES, MONTH_NAMES_ID, AGE_GROUPS } from '../../data/mockData';
-import { HealthCategory, AgeGroup } from '../../types/health';
+import { HEALTH_CATEGORIES, MONTH_NAMES_ID, AGE_GROUPS, STANDARD_AGE_BRACKETS } from '../../data/mockData';
+import { HealthCategory, AgeGroup, StandardAgeBracket } from '../../types/health';
 
 export const GlobalFilterBar: React.FC = () => {
   const {
@@ -19,6 +19,8 @@ export const GlobalFilterBar: React.FC = () => {
     setSelectedCategory,
     selectedAgeGroup,
     setSelectedAgeGroup,
+    selectedAgeBracket,
+    setSelectedAgeBracket,
     selectedIndicatorId,
     setSelectedIndicatorId,
     indicators,
@@ -40,6 +42,7 @@ export const GlobalFilterBar: React.FC = () => {
     }
     setSelectedCategory('ALL');
     setSelectedAgeGroup('ALL');
+    setSelectedAgeBracket('ALL');
     setSelectedIndicatorId('ALL');
     setSearchQuery('');
   };
@@ -51,6 +54,7 @@ export const GlobalFilterBar: React.FC = () => {
     (!isPuskesmasRole && selectedPuskesmasId !== 'ALL') || 
     selectedCategory !== 'ALL' || 
     selectedAgeGroup !== 'ALL' ||
+    selectedAgeBracket !== 'ALL' ||
     selectedIndicatorId !== 'ALL' ||
     searchQuery.trim() !== '';
 
@@ -75,9 +79,8 @@ export const GlobalFilterBar: React.FC = () => {
               className="text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-teal-500"
             >
               <option value="ALL">Semua Tahun</option>
-              <option value="2026">Tahun 2026</option>
-              <option value="2025">Tahun 2025</option>
-              <option value="2024">Tahun 2024</option>
+              {Array.from({ length: 11 }, (_, index) => 2030 - index)
+                .map(year => <option key={year} value={year}>Tahun {year}</option>)}
             </select>
           </div>
 
@@ -170,6 +173,22 @@ export const GlobalFilterBar: React.FC = () => {
                 <option key={ag.id} value={ag.id}>
                   {ag.label} ({ag.rangeDescription})
                 </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Kelompok umur baku 5 tahunan */}
+          <div className="flex items-center gap-1.5">
+            <Users className="w-3.5 h-3.5 text-slate-400" />
+            <select
+              value={selectedAgeBracket}
+              onChange={(e) => setSelectedAgeBracket(e.target.value as StandardAgeBracket | 'ALL')}
+              aria-label="Pilih Kelompok Umur 5 Tahunan"
+              className="text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-teal-500"
+            >
+              <option value="ALL">Semua Kelompok Umur 5 Tahunan</option>
+              {STANDARD_AGE_BRACKETS.map(group => (
+                <option key={group.bracket} value={group.bracket}>{group.label}</option>
               ))}
             </select>
           </div>

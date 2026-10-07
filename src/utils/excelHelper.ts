@@ -1,6 +1,12 @@
 import * as XLSX from 'xlsx';
 import { HealthIndicator, IndicatorDataRecord, Puskesmas } from '../types/health';
 import { getIndicatorSPMStatus } from './healthCalculations';
+import {
+  calculateIndicatorPercentage,
+  getStandardAgeBracket,
+  parseStandardAgeBracket,
+  validateIndicatorRecord,
+} from './dataValidation';
 
 export interface ParsedRowResult {
   isValid: boolean;
@@ -31,6 +37,7 @@ export function downloadOfficialExcelTemplate(indicators: HealthIndicator[], pus
       'Nama Puskesmas': 'Puskesmas Melati',
       'Tahun': 2026,
       'Bulan (1-12)': 4,
+      'Kelompok Umur': '',
       'Kode Indikator': 'K4-BUMIL',
       'Nama Indikator': 'Cakupan Kunjungan Ibu Hamil K4/K6',
       'Numerator (Realisasi)': 342,
@@ -42,6 +49,7 @@ export function downloadOfficialExcelTemplate(indicators: HealthIndicator[], pus
       'Nama Puskesmas': 'Puskesmas Melati',
       'Tahun': 2026,
       'Bulan (1-12)': 4,
+      'Kelompok Umur': '',
       'Kode Indikator': 'IDL-BALITA',
       'Nama Indikator': 'Cakupan Imunisasi Dasar Lengkap (IDL) Bayi',
       'Numerator (Realisasi)': 395,
@@ -53,6 +61,7 @@ export function downloadOfficialExcelTemplate(indicators: HealthIndicator[], pus
       'Nama Puskesmas': 'Puskesmas Mawar',
       'Tahun': 2026,
       'Bulan (1-12)': 4,
+      'Kelompok Umur': '',
       'Kode Indikator': 'STUNTING-PREV',
       'Nama Indikator': 'Prevalensi Balita Stunting (Pendek & Sangat Pendek)',
       'Numerator (Realisasi)': 215,
@@ -64,6 +73,7 @@ export function downloadOfficialExcelTemplate(indicators: HealthIndicator[], pus
       'Nama Puskesmas': 'Puskesmas Mawar',
       'Tahun': 2026,
       'Bulan (1-12)': 4,
+      'Kelompok Umur': '',
       'Kode Indikator': 'TB-TEMUKAN',
       'Nama Indikator': 'Penemuan Kasus Tuberkulosis (Treatment Coverage)',
       'Numerator (Realisasi)': 118,
@@ -148,9 +158,6 @@ export async function parseUploadedExcel(
     };
   }
 
-  // Duplicate tracker within uploaded file
-  const fileDuplicatesTracker = new Set<string>();
-
   rawRows.forEach((row, index) => {
     const rowNumber = index + 2; // considering 1-based header
     const errors: string[] = [];
@@ -190,68 +197,82 @@ export async function parseUploadedExcel(
     }
 
     // Year & Month
-    const rawYear = row['Tahun'] || row['tahun'];
-    const rawMonth = row['Bulan (1-12)'] || row['Bulan'] || row['bulan'];
+    const rawYear = row['Tahun'] ?? row['tahun'];
+    const rawMonth = row['Bulan (1-12)'] ?? row['Bulan'] ?? row['bulan'];
 
-    if (rawYear === '' || rawYear === undefined) {
+    if (rawYear === undefined || rawYear === null || String(rawYear).trim() === '') {
       errors.push('Field Tahun wajib diisi (tidak boleh kosong).');
     }
-    const year = Number(rawYear);
+    const year = rawYear === undefined || rawYear === null || String(rawYear).trim() === '' ? Number.NaN : Number(rawYear);
 
-    if (isNaN(year) || year < 2020 || year > 2030) {
-      errors.push(`Tahun tidak valid: '${rawYear}'. Angka harus berada di rentang 2020-2030.`);
+    if (!Number.isInteger(year) || year < 2020 || year > 2030) {
+      errors.push(`Tahun tidak valid: '${rawYear}'. Masukkan angka bulat antara 2020-2030.`);
     }
 
-    if (rawMonth === '' || rawMonth === undefined) {
+    if (rawMonth === undefined || rawMonth === null || String(rawMonth).trim() === '') {
       errors.push('Field Bulan wajib diisi (tidak boleh kosong).');
     }
-    const month = Number(rawMonth);
+    const month = rawMonth === undefined || rawMonth === null || String(rawMonth).trim() === '' ? Number.NaN : Number(rawMonth);
 
-    if (isNaN(month) || month < 1 || month > 12) {
-      errors.push(`Bulan tidak valid: '${rawMonth}'. Gunakan angka numerik 1 sampai 12.`);
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      errors.push(`Bulan tidak valid: '${rawMonth}'. Gunakan angka bulat 1 sampai 12.`);
     }
 
     // Numerator and Denominator
     const rawNum = row['Numerator (Realisasi)'] ?? row['Numerator'] ?? row['realisasi'] ?? row['numerator'];
     const rawDenom = row['Denominator (Sasaran)'] ?? row['Denominator'] ?? row['sasaran'] ?? row['denominator'];
 
-    if (rawNum === '' || rawNum === undefined) {
+    if (rawNum === '' || rawNum === undefined || rawNum === null || String(rawNum).trim() === '') {
       errors.push('Field Numerator (realisasi) wajib diisi.');
     }
-    if (rawDenom === '' || rawDenom === undefined) {
+    if (rawDenom === '' || rawDenom === undefined || rawDenom === null || String(rawDenom).trim() === '') {
       errors.push('Field Denominator (sasaran) wajib diisi.');
     }
 
-    const numerator = Number(rawNum);
-    const denominator = Number(rawDenom);
+    const numerator = rawNum === '' || rawNum === undefined || rawNum === null || String(rawNum).trim() === '' ? Number.NaN : Number(rawNum);
+    const denominator = rawDenom === '' || rawDenom === undefined || rawDenom === null || String(rawDenom).trim() === '' ? Number.NaN : Number(rawDenom);
 
-    if (isNaN(numerator) || numerator < 0) {
+    if (!Number.isFinite(numerator) || numerator < 0) {
       errors.push(`Numerator harus berupa angka numerik non-negatif. Ditemukan: '${rawNum}'.`);
     }
 
-    if (isNaN(denominator) || denominator <= 0) {
+    if (!Number.isFinite(denominator) || denominator <= 0) {
       errors.push(`Denominator harus berupa angka numerik lebih besar dari 0. Ditemukan: '${rawDenom}'.`);
     }
 
-    // Duplicate Check (Business Rule 1: Duplikasi harus diperiksa)
-    if (matchedPkm && matchedInd && !isNaN(year) && !isNaN(month)) {
-      const rowKey = `${matchedPkm.id}_${matchedInd.id}_${year}_${month}`;
-      if (fileDuplicatesTracker.has(rowKey)) {
-        errors.push(`Duplikasi file: Data ${matchedPkm.name} - ${matchedInd.name} periode ${year} bln ${month} muncul ganda dalam file Excel ini.`);
-      } else {
-        fileDuplicatesTracker.add(rowKey);
-      }
+    const rawAge = row['Umur'] ?? row['Usia'] ?? row['umur'] ?? row['usia'];
+    const rawAgeBracket = row['Kelompok Umur'] ?? row['Kelompok_Umur'] ?? row['age_group'] ?? row['ageBracket'];
+    let ageBracket = parseStandardAgeBracket(rawAgeBracket);
+    const hasAge = rawAge !== undefined && rawAge !== null && String(rawAge).trim() !== '';
+    const hasAgeBracket = rawAgeBracket !== undefined && rawAgeBracket !== null && String(rawAgeBracket).trim() !== '';
 
-      // Check against current database
-      const existingInDb = existingRecords.find(r => 
-        r.puskesmasId === matchedPkm!.id && 
-        r.indicatorId === matchedInd!.id && 
-        r.year === year && 
-        r.month === month
-      );
-      if (existingInDb) {
-        errors.push(`Duplikasi database: Sudah ada catatan tersimpan untuk ${matchedPkm.name} - ${matchedInd.name} periode ${year} bln ${month} (Nilai saat ini: ${existingInDb.achievementRate}%).`);
+    if (hasAgeBracket && !ageBracket) {
+      errors.push(`Kelompok umur '${rawAgeBracket}' tidak valid. Gunakan rentang 10-14 sampai 45-49 tahun.`);
+    }
+    if (hasAge && !ageBracket) {
+      const age = Number(rawAge);
+      if (!Number.isInteger(age) || age < 10 || age > 49) {
+        errors.push(`Umur '${rawAge}' harus berupa angka bulat antara 10 dan 49 tahun.`);
+      } else {
+        ageBracket = getStandardAgeBracket(age);
       }
+    } else if (hasAge && ageBracket) {
+      const age = Number(rawAge);
+      if (!Number.isInteger(age) || age < 10 || age > 49) {
+        errors.push(`Umur '${rawAge}' harus berupa angka bulat antara 10 dan 49 tahun.`);
+      } else if (getStandardAgeBracket(age) !== ageBracket) {
+        errors.push(`Umur ${age} tahun tidak sesuai dengan kelompok umur ${rawAgeBracket}.`);
+      }
+    }
+
+    if (matchedPkm && matchedInd) {
+      const validation = validateIndicatorRecord(
+        { puskesmasId: matchedPkm.id, indicatorId: matchedInd.id, year, month, numerator, denominator, ageBracket },
+        indicators,
+        puskesmasList,
+        [...existingRecords, ...validRecords]
+      );
+      errors.push(...validation.errors);
     }
 
     const notes = String(row['Catatan'] || row['Keterangan'] || row['notes'] || '').trim();
@@ -264,7 +285,18 @@ export async function parseUploadedExcel(
         rawRow: row,
       });
     } else {
-      const achievementRate = Number(((numerator / denominator) * 100).toFixed(1));
+      const achievementRate = matchedInd
+        ? calculateIndicatorPercentage(numerator, denominator)
+        : null;
+      if (achievementRate === null) {
+        invalidRows.push({
+          isValid: false,
+          rowNumber,
+          errors: ['Persentase tidak dapat dihitung karena denominator tidak valid.'],
+          rawRow: row,
+        });
+        return;
+      }
       const record: IndicatorDataRecord = {
         id: `REC-IMP-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
         puskesmasId: matchedPkm.id,
@@ -274,6 +306,7 @@ export async function parseUploadedExcel(
         indicatorName: matchedInd.name,
         category: matchedInd.category,
         ageGroup: matchedInd.ageGroup,
+        ageBracket,
         year,
         month,
         targetValue: matchedInd.spmTarget,
@@ -322,6 +355,7 @@ export function exportHealthDataToExcel(
       'Nama Puskesmas': r.puskesmasName,
       'Tahun': r.year,
       'Bulan': r.month,
+      'Kelompok Umur': r.ageBracket ? `${r.ageBracket} Tahun` : '',
       'Kategori': r.category,
       'Kode Indikator': r.indicatorCode,
       'Nama Indikator': r.indicatorName,
@@ -380,6 +414,7 @@ export function exportToCSV(records: IndicatorDataRecord[], filename: string = '
     'Nama Puskesmas': r.puskesmasName,
     'Tahun': r.year,
     'Bulan': r.month,
+    'Kelompok Umur': r.ageBracket ? `${r.ageBracket} Tahun` : '',
     'Kategori': r.category,
     'Kode Indikator': r.indicatorCode,
     'Nama Indikator': r.indicatorName,

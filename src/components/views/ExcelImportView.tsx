@@ -60,6 +60,7 @@ export const ExcelImportView: React.FC<{ setActiveView: (view: string) => void }
     setIsProcessing(true);
     setImportSuccessMessage(null);
 
+    try {
     // Create a mock File object with realistic Excel data
     const wb = XLSX.utils.book_new();
     const sampleData = [
@@ -68,6 +69,7 @@ export const ExcelImportView: React.FC<{ setActiveView: (view: string) => void }
         'Nama Puskesmas': 'Puskesmas Melati',
         'Tahun': 2026,
         'Bulan (1-12)': 4,
+        'Kelompok Umur': '20-24',
         'Kode Indikator': 'K4-BUMIL',
         'Nama Indikator': 'Cakupan Kunjungan Ibu Hamil K4/K6',
         'Numerator (Realisasi)': 345,
@@ -141,14 +143,19 @@ export const ExcelImportView: React.FC<{ setActiveView: (view: string) => void }
 
     const result = await parseUploadedExcel(file, indicators, puskesmasList, currentUser.name, records);
     setImportResult(result);
-    setIsProcessing(false);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Format tidak valid';
+      alert(`Gagal memproses contoh Excel: ${message}`);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   // Confirm committing valid records to data context
   const handleCommitImport = () => {
     if (!importResult || importResult.validRecords.length === 0) return;
 
-    importRecordsBatch(importResult.validRecords, {
+    const result = importRecordsBatch(importResult.validRecords, {
       fileName: importResult.fileName,
       importedAt: new Date().toISOString(),
       totalRows: importResult.totalRows,
@@ -157,6 +164,11 @@ export const ExcelImportView: React.FC<{ setActiveView: (view: string) => void }
       status: importResult.invalidRows.length > 0 ? 'WARNING' : 'SUCCESS',
       errors: importResult.invalidRows.flatMap(r => r.errors),
     });
+    if (!result.success) {
+      setImportSuccessMessage(null);
+      alert(result.message || 'Data import tidak dapat disimpan.');
+      return;
+    }
 
     setImportSuccessMessage(
       `Berhasil mengimpor ${importResult.validRecords.length} data capaian ke sistem!`
@@ -303,12 +315,18 @@ export const ExcelImportView: React.FC<{ setActiveView: (view: string) => void }
             <h4 className="text-xs font-bold text-slate-800 mb-2">
               Pratinjau Data Valid yang Siap Disimpan:
             </h4>
+            {importResult.validRecords.length === 0 ? (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
+                Tidak ada baris valid untuk disimpan. Perbaiki baris yang tidak valid lalu unggah ulang.
+              </p>
+            ) : (
             <div className="overflow-x-auto border border-slate-200 rounded-lg">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
                   <tr>
                     <th className="py-2 px-3">Puskesmas</th>
                     <th className="py-2 px-3">Periode</th>
+                    <th className="py-2 px-3">Kelompok Umur</th>
                     <th className="py-2 px-3">Indikator</th>
                     <th className="py-2 px-3 text-right">Realisasi</th>
                     <th className="py-2 px-3 text-right">Sasaran</th>
@@ -320,6 +338,7 @@ export const ExcelImportView: React.FC<{ setActiveView: (view: string) => void }
                     <tr key={i} className="hover:bg-slate-50/60">
                       <td className="py-2 px-3 font-medium text-slate-800">{r.puskesmasName}</td>
                       <td className="py-2 px-3 font-mono text-slate-600">{r.year} - Bln {r.month}</td>
+                      <td className="py-2 px-3 text-slate-600">{r.ageBracket ? `${r.ageBracket} Tahun` : '-'}</td>
                       <td className="py-2 px-3 font-medium text-slate-800">{r.indicatorName}</td>
                       <td className="py-2 px-3 text-right font-mono text-slate-700">{r.numerator}</td>
                       <td className="py-2 px-3 text-right font-mono text-slate-700">{r.denominator}</td>
@@ -329,6 +348,7 @@ export const ExcelImportView: React.FC<{ setActiveView: (view: string) => void }
                 </tbody>
               </table>
             </div>
+            )}
           </div>
 
           {/* Commit button */}

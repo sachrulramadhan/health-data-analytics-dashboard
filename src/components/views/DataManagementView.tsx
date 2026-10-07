@@ -21,8 +21,8 @@ import {
 } from 'lucide-react';
 import { useHealthData } from '../../context/HealthDataContext';
 import { formatNumberID, getIndicatorSPMStatus, checkDuplicateRecord } from '../../utils/healthCalculations';
-import { IndicatorDataRecord, AuditLog } from '../../types/health';
-import { MONTH_NAMES_ID } from '../../data/mockData';
+import { IndicatorDataRecord, AuditLog, StandardAgeBracket } from '../../types/health';
+import { MONTH_NAMES_ID, STANDARD_AGE_BRACKETS } from '../../data/mockData';
 import { exportHealthDataToExcel, exportToCSV } from '../../utils/excelHelper';
 
 export const DataManagementView: React.FC<{ setActiveView: (view: string) => void }> = ({ setActiveView }) => {
@@ -36,7 +36,6 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
     selectedMonth,
     selectedPuskesmasId,
     auditLogs,
-    clearAuditLogs,
     addRecord,
     updateRecord,
     deleteRecord,
@@ -57,10 +56,11 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
       : puskesmasList[0]?.id || ''
   );
   const [formIndicatorId, setFormIndicatorId] = useState(indicators[0]?.id || '');
-  const [formYear, setFormYear] = useState(2026);
+  const [formYear, setFormYear] = useState('2026');
   const [formMonth, setFormMonth] = useState(4);
-  const [formNumerator, setFormNumerator] = useState<number>(100);
-  const [formDenominator, setFormDenominator] = useState<number>(120);
+  const [formNumerator, setFormNumerator] = useState('100');
+  const [formDenominator, setFormDenominator] = useState('120');
+  const [formAgeBracket, setFormAgeBracket] = useState<StandardAgeBracket | ''>('');
   const [formNotes, setFormNotes] = useState('');
   const [formValidationError, setFormValidationError] = useState<string | null>(null);
 
@@ -118,10 +118,11 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
         : puskesmasList[0]?.id || ''
     );
     setFormIndicatorId(indicators[0]?.id || '');
-    setFormYear(2026);
+    setFormYear('2026');
     setFormMonth(4);
-    setFormNumerator(85);
-    setFormDenominator(100);
+    setFormNumerator('85');
+    setFormDenominator('100');
+    setFormAgeBracket('');
     setFormNotes('');
     setFormValidationError(null);
     setIsAddModalOpen(true);
@@ -146,28 +147,34 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
     }
 
     // 2. Numeric format & year validation
-    if (isNaN(formYear) || formYear < 2020 || formYear > 2030) {
+    const year = Number(formYear);
+    const numerator = Number(formNumerator);
+    const denominator = Number(formDenominator);
+
+    if (formYear.trim() === '' || !Number.isInteger(year) || year < 2020 || year > 2030) {
       setFormValidationError('Tahun tidak valid. Masukkan tahun antara 2020 - 2030.');
       return;
     }
 
-    if (isNaN(formMonth) || formMonth < 1 || formMonth > 12) {
+    if (!Number.isInteger(formMonth) || formMonth < 1 || formMonth > 12) {
       setFormValidationError('Bulan tidak valid. Gunakan angka 1 sampai 12.');
       return;
     }
 
-    if (isNaN(formNumerator) || formNumerator < 0) {
+    if (formNumerator.trim() === '' || !Number.isFinite(numerator) || numerator < 0) {
       setFormValidationError('Numerator (realisasi) harus angka numerik non-negatif.');
       return;
     }
 
-    if (isNaN(formDenominator) || formDenominator <= 0) {
+    if (formDenominator.trim() === '' || !Number.isFinite(denominator) || denominator <= 0) {
       setFormValidationError('Denominator (sasaran) harus angka numerik lebih besar dari 0.');
       return;
     }
 
     // 3. Duplicate Checking (Business Rule 1: Duplikasi harus diperiksa)
-    const duplicateCheck = checkDuplicateRecord(records, formPkmId, formIndicatorId, formYear, formMonth);
+    const duplicateCheck = checkDuplicateRecord(
+      records, formPkmId, formIndicatorId, year, formMonth, undefined, formAgeBracket || undefined
+    );
     if (duplicateCheck.isDuplicate) {
       setFormValidationError(
         `Duplikasi data terdeteksi! Sudah terdapat catatan untuk ${pkm.name} - ${ind.name} pada periode ${formYear} Bulan ${formMonth}. Silakan edit baris data yang telah ada.`
@@ -175,8 +182,8 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
       return;
     }
 
-    // 4. Save record (will automatically record Audit Trail)
-    addRecord({
+    // Save record; the context revalidates before persistence and records the audit snapshot.
+    const result = addRecord({
       puskesmasId: pkm.id,
       puskesmasName: pkm.name,
       indicatorId: ind.id,
@@ -184,21 +191,27 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
       indicatorName: ind.name,
       category: ind.category,
       ageGroup: ind.ageGroup,
-      year: formYear,
+      year,
       month: formMonth,
       targetValue: ind.spmTarget,
-      numerator: formNumerator,
-      denominator: formDenominator,
+      numerator,
+      denominator,
+      ageBracket: formAgeBracket || undefined,
       notes: formNotes || undefined,
     });
+    if (!result.success) {
+      setFormValidationError(result.message || 'Data tidak dapat disimpan.');
+      return;
+    }
 
     setIsAddModalOpen(false);
   };
 
   const handleOpenEdit = (rec: IndicatorDataRecord) => {
     setEditingRecord(rec);
-    setFormNumerator(rec.numerator);
-    setFormDenominator(rec.denominator);
+    setFormNumerator(String(rec.numerator));
+    setFormDenominator(String(rec.denominator));
+    setFormAgeBracket(rec.ageBracket || '');
     setFormNotes(rec.notes || '');
     setFormValidationError(null);
   };
@@ -209,21 +222,29 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
     if (!editingRecord) return;
     setFormValidationError(null);
 
-    if (isNaN(formNumerator) || formNumerator < 0) {
+    const numerator = Number(formNumerator);
+    const denominator = Number(formDenominator);
+
+    if (formNumerator.trim() === '' || !Number.isFinite(numerator) || numerator < 0) {
       setFormValidationError('Numerator (realisasi) harus angka numerik non-negatif.');
       return;
     }
 
-    if (isNaN(formDenominator) || formDenominator <= 0) {
+    if (formDenominator.trim() === '' || !Number.isFinite(denominator) || denominator <= 0) {
       setFormValidationError('Denominator (sasaran) harus angka numerik lebih besar dari 0.');
       return;
     }
 
-    updateRecord(editingRecord.id, {
-      numerator: formNumerator,
-      denominator: formDenominator,
+    const result = updateRecord(editingRecord.id, {
+      numerator,
+      denominator,
+      ageBracket: formAgeBracket || undefined,
       notes: formNotes || undefined,
     });
+    if (!result.success) {
+      setFormValidationError(result.message || 'Data tidak dapat diperbarui.');
+      return;
+    }
 
     setEditingRecord(null);
   };
@@ -344,6 +365,7 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
               <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
                 <tr>
                   <th className="py-2.5 px-3">Periode</th>
+                  <th className="py-2.5 px-3">Kelompok Umur</th>
                   <th className="py-2.5 px-3">Puskesmas</th>
                   <th className="py-2.5 px-3">Indikator</th>
                   <th className="py-2.5 px-3 text-right">Target</th>
@@ -357,7 +379,7 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
               <tbody className="divide-y divide-slate-100">
                 {paginatedRecords.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-10 text-center">
+                    <td colSpan={10} className="py-10 text-center">
                       <div className="max-w-sm mx-auto text-center">
                         <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
                         <h4 className="text-xs font-bold text-slate-800">
@@ -380,6 +402,9 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
                         <td className="py-2.5 px-3 font-mono text-slate-600 whitespace-nowrap">
                           {rec.year} - Bln {String(rec.month).padStart(2, '0')}
                         </td>
+                          <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
+                            {rec.ageBracket ? `${rec.ageBracket} Tahun` : '-'}
+                          </td>
                         <td className="py-2.5 px-3 font-semibold text-slate-800 whitespace-nowrap">
                           {rec.puskesmasName}
                         </td>
@@ -491,18 +516,6 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
                 />
               </div>
 
-              {currentUser.role === 'ADMIN' && (
-                <button
-                  onClick={() => {
-                    if (window.confirm('Bersihkan semua riwayat audit log?')) {
-                      clearAuditLogs();
-                    }
-                  }}
-                  className="px-2.5 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors font-medium"
-                >
-                  Reset Log
-                </button>
-              )}
             </div>
           </div>
 
@@ -558,10 +571,24 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
                         {log.period}
                       </td>
                       <td className="py-2.5 px-3 font-mono text-slate-500 text-[11px]">
-                        {log.previousValue !== null && log.previousValue !== undefined ? String(log.previousValue) : '-'}
+                        {log.previousData ? (
+                          <details>
+                            <summary className="cursor-pointer">{String(log.previousValue ?? 'Lihat data')}</summary>
+                            <pre className="mt-2 max-w-sm max-h-56 overflow-auto whitespace-pre-wrap break-all rounded bg-slate-50 p-2 text-[10px]">
+                              {JSON.stringify(log.previousData, null, 2)}
+                            </pre>
+                          </details>
+                        ) : log.previousValue !== null && log.previousValue !== undefined ? String(log.previousValue) : '-'}
                       </td>
                       <td className="py-2.5 px-3 font-mono text-teal-700 font-semibold text-[11px]">
-                        {log.newValue !== null && log.newValue !== undefined ? String(log.newValue) : '-'}
+                        {log.newData ? (
+                          <details>
+                            <summary className="cursor-pointer">{String(log.newValue ?? 'Lihat data')}</summary>
+                            <pre className="mt-2 max-w-sm max-h-56 overflow-auto whitespace-pre-wrap break-all rounded bg-slate-50 p-2 text-[10px]">
+                              {JSON.stringify(log.newData, null, 2)}
+                            </pre>
+                          </details>
+                        ) : log.newValue !== null && log.newValue !== undefined ? String(log.newValue) : '-'}
                       </td>
                       <td className="py-2.5 px-3 text-slate-600 max-w-xs truncate" title={log.changeSummary}>
                         {log.changeSummary}
@@ -655,6 +682,20 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
                 </select>
               </div>
 
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1">Kelompok Umur (opsional)</label>
+                <select
+                  value={formAgeBracket}
+                  onChange={(e) => setFormAgeBracket(e.target.value as StandardAgeBracket | '')}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-800"
+                >
+                  <option value="">Tidak ada data umur</option>
+                  {STANDARD_AGE_BRACKETS.map(group => (
+                    <option key={group.bracket} value={group.bracket}>{group.label}</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1">
@@ -665,7 +706,7 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
                     min="2020"
                     max="2030"
                     value={formYear}
-                    onChange={(e) => setFormYear(Number(e.target.value))}
+                    onChange={(e) => setFormYear(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-800"
                   />
                 </div>
@@ -686,6 +727,20 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
                 </div>
               </div>
 
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1">Kelompok Umur (opsional)</label>
+                <select
+                  value={formAgeBracket}
+                  onChange={(e) => setFormAgeBracket(e.target.value as StandardAgeBracket | '')}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-800"
+                >
+                  <option value="">Tidak ada data umur</option>
+                  {STANDARD_AGE_BRACKETS.map(group => (
+                    <option key={group.bracket} value={group.bracket}>{group.label}</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1">
@@ -695,7 +750,7 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
                     type="number"
                     min="0"
                     value={formNumerator}
-                    onChange={(e) => setFormNumerator(Number(e.target.value))}
+                    onChange={(e) => setFormNumerator(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-800"
                   />
                 </div>
@@ -708,7 +763,7 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
                     type="number"
                     min="1"
                     value={formDenominator}
-                    onChange={(e) => setFormDenominator(Number(e.target.value))}
+                    onChange={(e) => setFormDenominator(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-800"
                   />
                 </div>
@@ -718,7 +773,10 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
               <div className="p-2.5 bg-teal-50 border border-teal-200 rounded-lg flex items-center justify-between text-xs">
                 <span className="text-teal-800 font-medium">Kalkulasi Capaian Otomatis:</span>
                 <span className="font-mono font-bold text-teal-900 text-sm">
-                  {formDenominator > 0 ? ((formNumerator / formDenominator) * 100).toFixed(1) : '0.0'}%
+                  {formNumerator.trim() !== '' && Number.isFinite(Number(formNumerator)) &&
+                    formDenominator.trim() !== '' && Number.isFinite(Number(formDenominator)) && Number(formDenominator) > 0
+                    ? `${((Number(formNumerator) / Number(formDenominator)) * 100).toFixed(1)}%`
+                    : '-'}
                 </span>
               </div>
 
@@ -807,7 +865,7 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
                     type="number"
                     min="0"
                     value={formNumerator}
-                    onChange={(e) => setFormNumerator(Number(e.target.value))}
+                    onChange={(e) => setFormNumerator(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-800"
                   />
                 </div>
@@ -820,7 +878,7 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
                     type="number"
                     min="1"
                     value={formDenominator}
-                    onChange={(e) => setFormDenominator(Number(e.target.value))}
+                    onChange={(e) => setFormDenominator(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-slate-800"
                   />
                 </div>
@@ -829,7 +887,10 @@ export const DataManagementView: React.FC<{ setActiveView: (view: string) => voi
               <div className="p-2.5 bg-teal-50 border border-teal-200 rounded-lg flex items-center justify-between text-xs">
                 <span className="text-teal-800 font-medium">Kalkulasi Capaian Baru:</span>
                 <span className="font-mono font-bold text-teal-900 text-sm">
-                  {formDenominator > 0 ? ((formNumerator / formDenominator) * 100).toFixed(1) : '0.0'}%
+                  {formNumerator.trim() !== '' && Number.isFinite(Number(formNumerator)) &&
+                    formDenominator.trim() !== '' && Number.isFinite(Number(formDenominator)) && Number(formDenominator) > 0
+                    ? `${((Number(formNumerator) / Number(formDenominator)) * 100).toFixed(1)}%`
+                    : '-'}
                 </span>
               </div>
 
