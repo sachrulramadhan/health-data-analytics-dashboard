@@ -1,0 +1,6 @@
+{
+  "name": "Health Data Analytics Dashboard",
+  "description": "Dashboard Analitik Data Kesehatan Terpadu untuk Puskesmas dan Dinas Kesehatan dengan pemantauan indikator SPM, analisis tren, komparasi wilayah, dan import Excel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
